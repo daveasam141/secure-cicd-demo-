@@ -1,0 +1,40 @@
+name: DevSecOps Pipeline
+on: [push, pull_request]
+
+jobs:
+  security-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SAST: Static Application Security Testing (Semgrep)
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/r2c-security-audit  # OWASP ruleset
+
+      # SCA: Dependency Scanning (OWASP Dependency-Check)
+      - name: OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check-Action@main
+        with:
+          project: 'secure-cicd-demo'
+          format: 'HTML'
+
+      # Secrets Detection (TruffleHog)
+      - name: Scan for Secrets
+        run: |
+          docker run --rm -v "$(pwd)":/workdir trufflesecurity/trufflehog:latest \
+          git file:///workdir --only-verified --json | tee trufflehog-results.json
+
+      # Container Security (Trivy)
+      - name: Build and Scan Docker Image
+        run: |
+          docker build -t my-app .
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image --exit-code 1 --severity CRITICAL my-app
+
+  deploy:
+    needs: security-checks
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Deploying to production after security checks pass!"
